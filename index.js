@@ -13,7 +13,7 @@ app.use(cookieParser());
 app.post('/', function (req, res) {
     let data = JSON.stringify({
         "id": process.env.FAYDA_ID,
-        "version": "1",
+        "version": "1.0",
         "requesttime": new Date().toISOString(),
         "metadata": {},
         "request": {
@@ -30,7 +30,7 @@ app.post('/', function (req, res) {
         headers: {
             'Content-Type': 'application/json'
         },
-        // rejectUnauthorized: false,
+        rejectUnauthorized: false,
     };
 
     var request = https.request(options, function (resp) {
@@ -50,6 +50,7 @@ app.post('/', function (req, res) {
     });
 
     request.on('error', (error) => {
+        res.send(error);
         console.error('show the error', error);
     });
     request.write(data);  // add a body to the request
@@ -134,6 +135,7 @@ app.post("/sendotp", function (req, res) {
     });
 
     request.on('error', (error) => {
+        res.send(error)
         console.error('show the error', error);
     });
     request.write(payloadStream);  // add a body to the request
@@ -164,13 +166,16 @@ app.post("/authotp", function (req, res) {
         return base64Url;
     }
 
-    const secretKey = generateSecretKey().toString('hex');
+    const secretKey = generateSecretKey();
+    // const secretKey = generateSecretKey().toString('hex');
     const key = crypto.randomBytes(32); // 256-bit key
     const faydaCrt = fs.readFileSync('./fayda.crt', { encoding: "utf8" });
-    const iv = crypto.randomBytes(128);
+    const faydaPub = fs.readFileSync('./fayda.pub', { encoding: 'utf8' });
+    const iv = crypto.randomBytes(16);
+    console.log('normal', key.length);
+    console.log('crt', faydaCrt.length);
+    console.log('crt', faydaPub.length);
 
-    const keyLength = crypto.publicEncrypt(faydaCrt, Buffer.from(''));
-    console.log("Public key length", keyLength.length);
 
 
     // Encrypt symmetricKey or generate requestSessionKey using aes-256-gcm but not compatable with public certificate
@@ -198,13 +203,40 @@ app.post("/authotp", function (req, res) {
     const requestSessionKey = encryptSymmetricKey(secretKey, faydaCrt);
     console.log(requestSessionKey);
 
-    // Generate SHA256 hash of certificate
-    const sha256 = crypto.createHash('sha256');
-    sha256.update(faydaCrt);
-    const thumbprint = base64UrlEncode(sha256.digest().toString('base64'));
+    // Generate HASH
+    function generateSHA256Hash(data, type) {
+        const hash = crypto.createHash('sha256');
+        hash.update(data);
+        return hash.digest(`${type}`);
+    }
+
+    // Generate Thumbprint from SHA256 hash of certificate
+    const thumbprint = base64UrlEncode(generateSHA256Hash(faydaCrt, 'base64'));
+    console.log('thumbpring', thumbprint)
 
 
-    const requestBody = JSON.stringify({
+    // Generate HMAC 
+    const requestBody = {
+        "timestamp": new Date().toISOString(),
+        "otp": "111111"
+    };
+
+    function generateMHAC(body, secKey) {
+        const hmac = generateSHA256Hash(JSON.stringify(body), 'hex');
+        const hmacLength = Buffer.byteLength(hmac, 'hex')
+
+        const iv = crypto.randomBytes(hmacLength);
+        const cipher = crypto.createCipheriv('aes-256-gcm', secKey, iv);
+
+        const encrypted = Buffer.concat([cipher.update(hmac), cipher.final()]);
+        return base64UrlEncode(encrypted.toString('base64'));
+    }
+
+    const Hmac = generateMHAC(requestBody, secretKey);
+    console.log('the hmac', Hmac);
+
+
+    const payload = JSON.stringify({
         "id": process.env.FAYDA_ID,
         "version": "1.0",
         "requkeyGen.generateKeyestTime": new Date().toISOString(),
@@ -221,7 +253,7 @@ app.post("/authotp", function (req, res) {
         },
         "thumbprint": thumbprint,
         "requestSessionKey": requestSessionKey,
-        "requestHMAC": "<SHA-256 of request block before encryption and then hash is encrypted using the requestSessionKey>",
+        "requestHMAC": Hmac,
         //Encrypted with session key and base-64-URL encoded
         "request": {
             "timestamp": new Date().toISOString(),
@@ -232,11 +264,50 @@ app.post("/authotp", function (req, res) {
     const signature = jws.sign({
         header: { alg: "RS256", typ: "JWS", x5c: [publicCert] },
         privateKey: { key: pKey, passphrase: process.env.PASSPHRASE },
-        payload: payloadStream,
+        payload: payload,
     });
 
 
-    res.send(requestBody);
+    var options = {
+        host: process.env.HOST,
+        path: process.env.OTP_REQUEST_PATH,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            "Authorization": req.cookies,
+            "Signature": signature
+        },
+        rejectUnauthorized: false,
+    };
+
+
+    var request = https.request(options, function (resp) {
+        let tempChunk = ""
+        resp.setEncoding('utf8');
+        resp.on('data', function (chunk) {
+            tempChunk += chunk;
+        });
+        resp.on('end', function () {
+            if (resp.statusCode !== 200) {
+                res.status(resp.statusCode).res.send(tempChunk);
+            } else {
+                // res.cookie("Authorization", resp.headers.authorization);
+                res.send(tempChunk);
+            }
+        })
+    });
+
+    request.on('error', (error) => {
+        res.send(error)
+        console.error('show the error', error);
+    });
+    request.write(payload);  // add a body to the request
+    request.end(() => {
+        console.log('Request Sent successfully');
+    });
+
+
+    res.send({ Signature: signature, payload: payload });
 })
 
 
