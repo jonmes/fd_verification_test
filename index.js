@@ -10,6 +10,7 @@ const cookieParser = require('cookie-parser');
 const port = 5001;
 const app = express();
 app.use(cookieParser());
+app.use(express.json({ extended: true, limit: '1mb' }))
 
 app.post('/', function (req, res) {
     let data = JSON.stringify({
@@ -61,6 +62,8 @@ app.post('/', function (req, res) {
 });
 
 app.post("/sendotp", function (req, res) {
+    const { individual_id } = req.body
+
     // Read the PKCS12 file into a buffer
     const p12File = fs.readFileSync('./testorg.p12');
 
@@ -90,12 +93,11 @@ app.post("/sendotp", function (req, res) {
         "env": process.env.ENV_TYPE,
         "domainUri": process.env.DOMAIN_URI,
         "transactionID": process.env.TRANSICTION_ID,
-        "individualId": process.env.INDIVIDUAL_ID,
+        // "individualId": process.env.INDIVIDUAL_ID,
+        "individualId": individual_id,
         "individualIdType": process.env.INDIVIDUAL_ID_TYPE,
         "otpChannel": ["PHONE"]
     });
-    console.log('the certificate', pCert);
-
 
     const publicCert = pCert.replace(`-----BEGIN CERTIFICATE-----\n`, "").replace("\n-----END CERTIFICATE-----\n", "");
 
@@ -137,11 +139,11 @@ app.post("/sendotp", function (req, res) {
 
     request.on('error', (error) => {
         res.send(error)
-        console.error('show the error', error);
+        // console.error('show the error', error);
     });
     request.write(payloadStream);  // add a body to the request
     request.end(() => {
-        console.log('Request Sent successfully');
+        // console.log('Request Sent successfully');
     });
 
 
@@ -149,6 +151,7 @@ app.post("/sendotp", function (req, res) {
 });
 
 app.post("/authotp", function (req, res) {
+    const { otpCode } = req.body;
 
     const pKey = fs.readFileSync('./testorg2-key.pem', { encoding: "utf8" });
     const pCert = fs.readFileSync('./testorg2-cert.pem', { encoding: "utf8" });
@@ -219,7 +222,7 @@ app.post("/authotp", function (req, res) {
     // Generate HMAC 
     const requestBody = {
         "timestamp": new Date().toISOString(),
-        "otp": "111111"
+        "otp": otpCode
     };
 
     function generateMHAC(body, secKey) {
