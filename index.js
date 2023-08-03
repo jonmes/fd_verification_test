@@ -4,6 +4,7 @@ const jws = require('jws');
 const https = require('https');
 const crypto = require('crypto');
 const express = require("express");
+require('dotenv').config();
 const cookieParser = require('cookie-parser');
 
 const port = 5001;
@@ -170,11 +171,11 @@ app.post("/authotp", function (req, res) {
     // const secretKey = generateSecretKey().toString('hex');
     const key = crypto.randomBytes(32); // 256-bit key
     const faydaCrt = fs.readFileSync('./fayda.crt', { encoding: "utf8" });
-    const faydaPub = fs.readFileSync('./fayda.pub', { encoding: 'utf8' });
+    // const faydaPub = fs.readFileSync('./fayda.pub', { encoding: 'utf8' });
     const iv = crypto.randomBytes(16);
-    console.log('normal', key.length);
-    console.log('crt', faydaCrt.length);
-    console.log('crt', faydaPub.length);
+    // console.log('normal', key.length);
+    // console.log('crt', faydaCrt.length);
+    // console.log('crt', faydaPub.length);
 
 
 
@@ -201,7 +202,7 @@ app.post("/authotp", function (req, res) {
     };
 
     const requestSessionKey = encryptSymmetricKey(secretKey, faydaCrt);
-    console.log(requestSessionKey);
+    // console.log(requestSessionKey);
 
     // Generate HASH
     function generateSHA256Hash(data, type) {
@@ -212,7 +213,7 @@ app.post("/authotp", function (req, res) {
 
     // Generate Thumbprint from SHA256 hash of certificate
     const thumbprint = base64UrlEncode(generateSHA256Hash(faydaCrt, 'base64'));
-    console.log('thumbpring', thumbprint)
+    // console.log('thumbpring', thumbprint)
 
 
     // Generate HMAC 
@@ -233,7 +234,7 @@ app.post("/authotp", function (req, res) {
     }
 
     const Hmac = generateMHAC(requestBody, secretKey);
-    console.log('the hmac', Hmac);
+    // console.log('the hmac', Hmac);
 
 
     const payload = JSON.stringify({
@@ -307,7 +308,7 @@ app.post("/authotp", function (req, res) {
     });
 
 
-    res.send({ Signature: signature, payload: payload });
+    // res.send({ Signature: signature, payload: payload });
 })
 
 
