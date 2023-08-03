@@ -99,7 +99,7 @@ app.post("/sendotp", function (req, res) {
 
     const signature = jws.sign({
         header: { alg: "RS256", typ: "JWS", x5c: [publicCert] },
-        privateKey: { key: pKey, passphrase: "testorg2" },
+        privateKey: { key: pKey, passphrase: process.env.PASSPHRASE },
         payload: payloadStream,
     });
 
@@ -231,7 +231,7 @@ app.post("/authotp", function (req, res) {
 
     const signature = jws.sign({
         header: { alg: "RS256", typ: "JWS", x5c: [publicCert] },
-        privateKey: { key: pKey, passphrase: "testorg2" },
+        privateKey: { key: pKey, passphrase: process.env.PASSPHRASE },
         payload: payloadStream,
     });
 
