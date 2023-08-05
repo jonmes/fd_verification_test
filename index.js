@@ -314,6 +314,29 @@ app.post("/authotp", function (req, res) {
     // res.send({ Signature: signature, payload: payload });
 })
 
+app.post("/genSecret", function (req, res) {
+    function generateSecretKey(keyLen) {
+        const key = crypto.randomBytes(keyLen);
+        return key.toString('hex');
+    }
+
+    function getCertificate(path) {
+        const certData = fs.readFileSync(path);
+        const cert = new crypto.X509Certificate(certData);
+
+        console.log('Public Key:', cert.publicKey.export({ type: 'spki', format: 'pem' }));
+        return cert;
+    }
+
+    const SecretKey = generateSecretKey(32);
+    const pubCert = getCertificate("./fayda.crt");
+
+
+    console.log(pubCert);
+
+    res.send(pubCert);
+});
+
 
 
 app.listen(port, () => {
