@@ -315,6 +315,14 @@ app.post("/authotp", function (req, res) {
 })
 
 app.post("/genSecret", function (req, res) {
+
+    function base64UrlEncode(buffer) {
+        let base64Url = buffer.toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=/g, '');
+        return base64Url;
+    }
     function generateSecretKey(keyLen) {
         const key = crypto.randomBytes(keyLen);
         return key.toString('hex');
@@ -323,18 +331,34 @@ app.post("/genSecret", function (req, res) {
     function getCertificate(path) {
         const certData = fs.readFileSync(path);
         const cert = new crypto.X509Certificate(certData);
-
-        console.log('Public Key:', cert.publicKey.export({ type: 'spki', format: 'pem' }));
-        return cert;
+        const pubCert = cert.publicKey.export({ type: 'spki', format: 'pem' });
+        return pubCert;
     }
 
+    function encryptSymmetricKey(data, publicKey) {
+        const encryptedSymKey = crypto.publicEncrypt({
+            key: publicKey,
+            padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+            oaepHash: 'sha256',
+            mgf1: {
+                hash: 'sha256'
+            }
+        }, data);
+
+        const encryptedSymKeyBase64Url = base64UrlEncode(encryptedSymKey); // Base64-URL-encode the encrypted symmetric key
+
+        return encryptedSymKeyBase64Url;
+    };
+
     const SecretKey = generateSecretKey(32);
-    const pubCert = getCertificate("./fayda.crt");
+    const pubKey = getCertificate("./fayda.crt");
+    const requestSessionKey = encryptSymmetricKey(SecretKey, pubKey);
 
 
-    console.log(pubCert);
 
-    res.send(pubCert);
+
+
+    res.send(requestSessionKey);
 });
 
 
