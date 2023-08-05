@@ -316,6 +316,16 @@ app.post("/authotp", function (req, res) {
 
 app.post("/genSecret", function (req, res) {
 
+    const { otpCode } = req.body;
+    const pKey = fs.readFileSync('./testorg2-key.pem', { encoding: "utf8" });
+    const pCert = fs.readFileSync('./testorg2-cert.pem', { encoding: "utf8" });
+    const publicCert = pCert.replace(`-----BEGIN CERTIFICATE-----\n`, "").replace("\n-----END CERTIFICATE-----\n", "");
+
+    const requestBody = JSON.stringify({
+        "timestamp": new Date().toISOString(),
+        "otp": otpCode
+    });
+
     function base64UrlEncode(buffer) {
         let base64Url = buffer.toString('base64')
             .replace(/\+/g, '-')
@@ -325,14 +335,15 @@ app.post("/genSecret", function (req, res) {
     }
     function generateSecretKey(keyLen) {
         const key = crypto.randomBytes(keyLen);
-        return key.toString('hex');
+        // return key.toString('hex');
+        return key;
     }
 
     function getCertificate(path) {
         const certData = fs.readFileSync(path);
         const cert = new crypto.X509Certificate(certData);
         const pubCert = cert.publicKey.export({ type: 'spki', format: 'pem' });
-        return pubCert;
+        return { publicKey: pubCert, certificate: cert };
     }
 
     function encryptSymmetricKey(data, publicKey) {
@@ -350,15 +361,137 @@ app.post("/genSecret", function (req, res) {
         return encryptedSymKeyBase64Url;
     };
 
+
+    function encryptAESGCMNOPadding(data, secretKey) {
+        const algorithm = 'aes-256-gcm';
+        const iv = crypto.randomBytes(16); // Generate a random IV
+
+        const cipher = crypto.createCipheriv(algorithm, secretKey, iv);
+        const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
+        const tag = cipher.getAuthTag();
+
+        const output = Buffer.concat([encrypted, iv, tag]);
+        return output.toString('base64url');
+    }
+
+    function generateHash(data) {
+        const hash = crypto.createHash('sha256');
+        hash.update(data);
+        return hash.digest();
+    }
+
+
+    function symmetricEncrypt(key, data, aad) {
+        try {
+            const randomIV = crypto.randomBytes(16);
+            const cipher = crypto.createCipheriv('aes-256-gcm', key, randomIV);
+            cipher.setAAD(aad);
+            const encryptedData = Buffer.concat([cipher.update(data), cipher.final()]);
+            const authTag = cipher.getAuthTag();
+            const output = Buffer.concat([encryptedData, randomIV, authTag]);
+            console.log('the output',);
+            return output.toString('base64url');
+        } catch (error) {
+            console.error(error);
+            return null;
+        }
+    }
+
+    function generateThumbprint(data) {
+        // Get raw DER certificate data
+        const certDER = data.raw;
+        // Generate SHA-256 thumbprint 
+        const thumbprint = crypto.createHash('sha256').update(certDER).digest('hex');
+        return thumbprint;
+    }
+
     const SecretKey = generateSecretKey(32);
-    const pubKey = getCertificate("./fayda.crt");
+
+    const pubKey = getCertificate("./fayda.crt").publicKey;
+    const pubCertificate = getCertificate("./fayda.crt").certificate
     const requestSessionKey = encryptSymmetricKey(SecretKey, pubKey);
+    const encryptedRequestBody = encryptAESGCMNOPadding(Buffer.from(requestBody), SecretKey);
+    const hashOfRequestBody = generateHash(requestBody).toString('base64url');
+    const requestHMAC = symmetricEncrypt(SecretKey, hashOfRequestBody, "");
+    const thumbprint = generateThumbprint(pubCertificate);
+
+    console.log('thumbprint', thumbprint);
+    console.log("requestSessionKey", requestSessionKey);
+    console.log("requestHMAC", requestHMAC);
+    console.log("encryt body", encryptedRequestBody);
+    console.log("hash of req", hashOfRequestBody);
 
 
+    const payload = JSON.stringify({
+        "id": process.env.FAYDA_ID,
+        "version": "1.0",
+        "requkeyGen.generateKeyestTime": new Date().toISOString(),
+        "env": process.env.ENV_TYPE,
+        "domainUri": process.env.DOMAIN_URI,
+        "transactionID": process.env.TRANSICTION_ID,
+        "consentObtained": true,
+        "individualId": process.env.INDIVIDUAL_ID,
+        "individualIdType": process.env.INDIVIDUAL_ID_TYPE,
+        "requestedAuth": {
+            "otp": true,
+            "demo": false,
+            "bio": false
+        },
+        "thumbprint": thumbprint,
+        "requestSessionKey": requestSessionKey,
+        "requestHMAC": requestHMAC,
+        //Encrypted with session key and base-64-URL encoded
+        "request": encryptedRequestBody
+    });
 
 
+    // Send Request to end point
 
-    res.send(requestSessionKey);
+    const signature = jws.sign({
+        header: { alg: "RS256", typ: "JWS", x5c: [publicCert] },
+        privateKey: { key: pKey, passphrase: process.env.PASSPHRASE },
+        payload: payload,
+    });
+
+
+    var options = {
+        host: process.env.HOST,
+        path: process.env.OTP_REQUEST_PATH,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            "Authorization": req.cookies,
+            "Signature": signature
+        },
+        rejectUnauthorized: false,
+    };
+
+
+    var request = https.request(options, function (resp) {
+        let tempChunk = ""
+        resp.setEncoding('utf8');
+        resp.on('data', function (chunk) {
+            tempChunk += chunk;
+        });
+        resp.on('end', function () {
+            if (resp.statusCode !== 200) {
+                res.status(resp.statusCode).res.send(tempChunk);
+            } else {
+                // res.cookie("Authorization", resp.headers.authorization);
+                res.send(tempChunk);
+            }
+        })
+    });
+
+    request.on('error', (error) => {
+        res.send(error)
+        console.error('show the error', error);
+    });
+    request.write(payload);  // add a body to the request
+    request.end(() => {
+        console.log('Request Sent successfully');
+    });
+
 });
 
 
