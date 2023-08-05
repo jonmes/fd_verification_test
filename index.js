@@ -407,8 +407,8 @@ app.post("/genSecret", function (req, res) {
 
     const SecretKey = generateSecretKey(32);
 
-    const pubKey = getCertificate("./fayda.crt").publicKey;
-    const pubCertificate = getCertificate("./fayda.crt").certificate
+    const pubKey = getCertificate("./testorg2-cert.pem").publicKey;
+    const pubCertificate = getCertificate("./testorg2-cert.pem").certificate
     const requestSessionKey = encryptSymmetricKey(SecretKey, pubKey);
     const encryptedRequestBody = encryptAESGCMNOPadding(Buffer.from(requestBody), SecretKey);
     const hashOfRequestBody = generateHash(requestBody).toString('base64url');
@@ -425,7 +425,7 @@ app.post("/genSecret", function (req, res) {
     const payload = JSON.stringify({
         "id": process.env.FAYDA_ID,
         "version": "1.0",
-        "requkeyGen.generateKeyestTime": new Date().toISOString(),
+        "requestTime": new Date().toISOString(),
         "env": process.env.ENV_TYPE,
         "domainUri": process.env.DOMAIN_URI,
         "transactionID": process.env.TRANSICTION_ID,
