@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const express = require("express");
 require('dotenv').config();
 const cookieParser = require('cookie-parser');
+const { parse } = require('path');
 
 const port = 5001;
 const app = express();
@@ -98,6 +99,7 @@ app.post("/sendotp", function (req, res) {
         "individualIdType": process.env.INDIVIDUAL_ID_TYPE,
         "otpChannel": ["PHONE"]
     });
+    // console.log(payloadStream);
 
     const publicCert = pCert.replace(`-----BEGIN CERTIFICATE-----\n`, "").replace("\n-----END CERTIFICATE-----\n", "");
 
@@ -106,6 +108,7 @@ app.post("/sendotp", function (req, res) {
         privateKey: { key: pKey, passphrase: process.env.PASSPHRASE },
         payload: payloadStream,
     });
+
 
 
     var options = {
@@ -314,7 +317,7 @@ app.post("/authotp", function (req, res) {
     // res.send({ Signature: signature, payload: payload });
 })
 
-app.post("/genSecret", function (req, res) {
+app.post("/votp", function (req, res) {
 
     const { otpCode } = req.body;
     const pKey = fs.readFileSync('./testorg2-key.pem', { encoding: "utf8" });
@@ -335,7 +338,6 @@ app.post("/genSecret", function (req, res) {
     }
     function generateSecretKey(keyLen) {
         const key = crypto.randomBytes(keyLen);
-        // return key.toString('hex');
         return key;
     }
 
@@ -345,6 +347,13 @@ app.post("/genSecret", function (req, res) {
         const pubCert = cert.publicKey.export({ type: 'spki', format: 'pem' });
         return { publicKey: pubCert, certificate: cert };
     }
+
+    function generateHash(data) {
+        const hash = crypto.createHash('sha256');
+        hash.update(data);
+        return hash.digest();
+    }
+
 
     function encryptSymmetricKey(data, publicKey) {
         const encryptedSymKey = crypto.publicEncrypt({
@@ -361,41 +370,20 @@ app.post("/genSecret", function (req, res) {
         return encryptedSymKeyBase64Url;
     };
 
-
-    function encryptAESGCMNOPadding(data, secretKey) {
-        const algorithm = 'aes-256-gcm';
-        const iv = crypto.randomBytes(16); // Generate a random IV
-
-        const cipher = crypto.createCipheriv(algorithm, secretKey, iv);
-        const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
-        const tag = cipher.getAuthTag();
-
-        const output = Buffer.concat([encrypted, iv, tag]);
-        return output.toString('base64url');
-    }
-
-    function generateHash(data) {
-        const hash = crypto.createHash('sha256');
-        hash.update(data);
-        return hash.digest();
-    }
-
-
     function symmetricEncrypt(key, data, aad) {
         try {
             const randomIV = crypto.randomBytes(16);
-            const cipher = crypto.createCipheriv('aes-256-gcm', key, randomIV);
+            const cipher = crypto.createCipheriv('aes-256-gcm', key, randomIV, { authTagLength: 16 });
             cipher.setAAD(aad);
             const encryptedData = Buffer.concat([cipher.update(data), cipher.final()]);
             const authTag = cipher.getAuthTag();
-            const output = Buffer.concat([encryptedData, randomIV, authTag]);
-            console.log('the output',);
+            const output = Buffer.concat([encryptedData, authTag, randomIV]);
             return output.toString('base64url');
         } catch (error) {
             console.error(error);
             return null;
         }
-    }
+    };
 
     function generateThumbprint(data) {
         // Get raw DER certificate data
@@ -407,19 +395,20 @@ app.post("/genSecret", function (req, res) {
 
     const SecretKey = generateSecretKey(32);
 
-    const pubKey = getCertificate("./testorg2-cert.pem").publicKey;
-    const pubCertificate = getCertificate("./fayda.crt").certificate
+    const pubKey = getCertificate('./fayda.crt').publicKey;
+    const pubCertificate = getCertificate("./fayda.crt").certificate;
     const requestSessionKey = encryptSymmetricKey(SecretKey, pubKey);
-    const encryptedRequestBody = encryptAESGCMNOPadding(Buffer.from(requestBody), SecretKey);
-    const hashOfRequestBody = generateHash(requestBody).toString('base64url');
-    const requestHMAC = symmetricEncrypt(SecretKey, hashOfRequestBody, "");
+    const hashOfRequestBody = generateHash(requestBody).toString('hex');
+    const requestHMAC = symmetricEncrypt(SecretKey, hashOfRequestBody.toUpperCase(), "");
+    const encryptedRequestBody = symmetricEncrypt(SecretKey, requestBody, "");
     const thumbprint = generateThumbprint(pubCertificate);
 
-    console.log('thumbprint', thumbprint);
-    console.log("requestSessionKey", requestSessionKey);
-    console.log("requestHMAC", requestHMAC);
-    console.log("encryt body", encryptedRequestBody);
-    console.log("hash of req", hashOfRequestBody);
+
+    // console.log('thumbprint', thumbprint);
+    // console.log("requestSessionKey", requestSessionKey);
+    // console.log("requestHMAC", requestHMAC);
+    // console.log("encryt body", encryptedRequestBody);
+    // console.log("hash of request", hashOfRequestBody);
 
 
     const payload = JSON.stringify({
@@ -443,6 +432,8 @@ app.post("/genSecret", function (req, res) {
         //Encrypted with session key and base-64-URL encoded
         "request": encryptedRequestBody
     });
+
+    console.log('payload:', JSON.parse(payload));
 
 
     // Send Request to end point
@@ -509,11 +500,11 @@ app.post("/hmac", function (req, res) {
         return hash.digest();
     }
 
-    const randomIV = crypto.randomBytes(16);
     function symmetricEncrypt(key, data, aad) {
         try {
-            const ogRandIv = "T0UX-AkPcCrJ2Q3MaEZ6KA";
-            const randomIV = Buffer.from(ogRandIv, 'base64url');
+            // const ogRandIv = "2jt8jsHkCKltos-exBLY3g";
+            // const randomIV = Buffer.from(ogRandIv, 'base64url');
+            const randomIV = crypto.randomBytes(16);
             const cipher = crypto.createCipheriv('aes-256-gcm', key, randomIV, { authTagLength: 16 });
             cipher.setAAD(aad);
             const encryptedData = Buffer.concat([cipher.update(data), cipher.final()]);
@@ -527,45 +518,71 @@ app.post("/hmac", function (req, res) {
         }
     };
 
-    // function symmetricEncrypt(key, data, aad) {
-    //     const ogRandIv = "cGmxcoiLpO0TqF1truKZiQ";
-    //     const iv = Buffer.from(ogRandIv, 'base64url');
-    //     const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-    //     cipher.setAAD(aad);
-    //     const encrypted = Buffer.concat([cipher.update(data), cipher.final()]);
-    //     const authTag = cipher.getAuthTag();
-    //     const output = Buffer.concat([encrypted,authTag,iv]).toString('base64url');
-    //     return output;
-    // }
 
-    function symmetricDecrypt(key, { iv, ciphertext, tag }) {
-        const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'hex'));
-        decipher.setAuthTag(Buffer.from(tag, 'hex'));
-        const decrypted = Buffer.concat([
-            decipher.update(Buffer.from(ciphertext, 'hex')),
-            decipher.final()
-        ]);
-        return decrypted;
-    }
-
-
-    const requestBody = JSON.stringify({ "timestamp": "2023-08-06T16:43:25.321Z", "otp": "111111" })
+    const requestBody = JSON.stringify({ "timestamp": "2023-08-07T08:43:27.504Z", "otp": "111111" })
     const hashOfRequestBody = generateHash(requestBody).toString('hex');
-    const ogSecret = "fZlSIHWbfw5PMwGsoO7y30ecUN0WQ59cqXQ_xfowUUQ";
+    console.log('hash of req body', hashOfRequestBody);
+    const ogSecret = "G1iAX-SJr6475Zot7rPzXNsjyPOqszw6izO8_XWZgOE";
     const SecretKey = Buffer.from(ogSecret, 'base64url');
-    const requestHMAC = symmetricEncrypt(SecretKey, hashOfRequestBody, "");
-    // const decrytedHMAC = symmetricDecrypt(SecretKey, requestHMAC);
-    // console.log('request before generation', hashOfRequestBody);
-    console.log('hash after encryption', requestHMAC);
-    // console.log('the decrypted value:', decrytedHMAC.toString('utf8'));
-    // console.log("the original value", hashOfRequestBody)
-
-
+    const requestHMAC = symmetricEncrypt(SecretKey, hashOfRequestBody.toUpperCase(), "");
     res.send(requestHMAC);
 });
 
 
+// app.post("/request", function (req, res) {
+//     function base64UrlEncode(buffer) {
+//         let base64Url = buffer.toString('base64')
+//             .replace(/\+/g, '-')
+//             .replace(/\//g, '_')
+//             .replace(/=/g, '');
+//         return base64Url;
+//     }
+//     function getCertificate(path) {
+//         const certData = fs.readFileSync(path);
+//         const cert = new crypto.X509Certificate(certData);
+//         const pubCert = cert.publicKey.export({ type: 'spki', format: 'pem' });
+//         return { publicKey: pubCert, certificate: cert };
+//     }
+
+//     function encryptAsymmetricKey(data, publicKey) {
+//         console.log('data', data);
+//         console.log('public', publicKey);
+//         const encryptedSymKey = crypto.publicEncrypt({
+//             key: publicKey,
+//             padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+//             oaepHash: 'sha256',
+//             mgf1: {
+//                 hash: 'sha256'
+//             }
+//         }, data);
+
+//         const encryptedSymKeyBase64Url = base64UrlEncode(encryptedSymKey); // Base64-URL-encode the encrypted symmetric key
+
+//         return encryptedSymKeyBase64Url;
+//     };
+//     const pKey = fs.readFileSync('./testorg2-key.pem', { encoding: "utf8" });
+//     const pubKey = getCertificate("./fayda.crt").publicKey;
+//     const SecretKey = "SkE4RwRTBcVBmpnFo4KYaiwUZzWwuNM--3Z8dhUB_yc"
+//     const dataTobeSent = Buffer.from(SecretKey, 'base64url');
+//     const requestSessionKey = encryptAsymmetricKey(dataTobeSent, pubKey);
+
+//     console.log("primary:", pKey);
+//     const decryptedData = crypto.privateDecrypt(requestSessionKey, pKey)
+
+//     console.log(requestSessionKey);
+//     console.log('decrypted:', decryptedData);
+//     res.send(requestSessionKey);
+
+// });
+
+
 app.post("/request", function (req, res) {
+
+    function generateSecretKey() {
+        const secretKey = crypto.randomBytes(32); // 256 bits
+        return secretKey;
+    }
+
     function base64UrlEncode(buffer) {
         let base64Url = buffer.toString('base64')
             .replace(/\+/g, '-')
@@ -573,16 +590,22 @@ app.post("/request", function (req, res) {
             .replace(/=/g, '');
         return base64Url;
     }
-    function getCertificate(path) {
-        const certData = fs.readFileSync(path);
-        const cert = new crypto.X509Certificate(certData);
-        const pubCert = cert.publicKey.export({ type: 'spki', format: 'pem' });
-        return { publicKey: pubCert, certificate: cert };
+
+    function base64UrlDecode(base64Url) {
+        // Convert Base64-URL to Base64 by replacing '-' with '+' and '_' with '/'
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+
+        // Add padding characters if necessary
+        const paddingLength = 4 - (base64.length % 4);
+        const paddedBase64 = base64 + '==='.slice(0, paddingLength);
+
+        // Decode the Base64 string to binary
+        const decodedData = Buffer.from(paddedBase64, 'base64');
+
+        return decodedData;
     }
 
-    function encryptAsymmetricKey(data, publicKey) {
-        console.log('data', data);
-        console.log('public', publicKey);
+    function encryptSymmetricKey(data, publicKey) {
         const encryptedSymKey = crypto.publicEncrypt({
             key: publicKey,
             padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
@@ -596,22 +619,117 @@ app.post("/request", function (req, res) {
 
         return encryptedSymKeyBase64Url;
     };
+
+    function decryptSymmetricKey(encryptedSymKeyBase64Url, privateKey) {
+        const encryptedSymKey = base64UrlDecode(encryptedSymKeyBase64Url);
+
+        const decryptedSymKey = crypto.privateDecrypt({
+            key: privateKey,
+            padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+            oaepHash: 'sha256',
+            mgf1: {
+                hash: 'sha256'
+            }
+        }, encryptedSymKey);
+
+        return decryptedSymKey;
+    }
+
+    function urlSafePublicKey(publicKey) {
+        const publicKeyBuffer = crypto.createPublicKey(publicKey).export({ format: 'der', type: 'spki' });
+        const publicKeyUrlSafeBase64 = publicKeyBuffer.toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, '');
+
+        return publicKeyUrlSafeBase64;
+    }
+
+    function getCertificate(path) {
+        const certData = fs.readFileSync(path);
+        const cert = new crypto.X509Certificate(certData);
+        const pubCert = cert.publicKey.export({ type: 'spki', format: 'pem' });
+        return { publicKey: pubCert, certificate: cert };
+    }
+
     const pKey = fs.readFileSync('./testorg2-key.pem', { encoding: "utf8" });
-    const pubKey = getCertificate("./fayda.crt").publicKey;
-    const SecretKey = "SkE4RwRTBcVBmpnFo4KYaiwUZzWwuNM--3Z8dhUB_yc"
-    const dataTobeSent = Buffer.from(SecretKey, 'base64url');
-    const requestSessionKey = encryptAsymmetricKey(dataTobeSent, pubKey);
+    const publicKey = getCertificate('./fayda.crt').publicKey;
+    console.log('Show public key:', publicKey);
+    const secretKey = generateSecretKey();
+    const requestSessionKey = encryptSymmetricKey(secretKey, publicKey);
+    // const decryptSessionKey = decryptSymmetricKey(requestSessionKey, pKey);
+    console.log("The secret Key:", secretKey);
+    // console.log("The decrypted Secret Key:", decryptSessionKey);
 
-    console.log("primary:", pKey);
-    const decryptedData = crypto.privateDecrypt(requestSessionKey, pKey)
-
-    console.log(requestSessionKey);
-    console.log('decrypted:', decryptedData);
     res.send(requestSessionKey);
+});
+
+
+app.post("/testEncryption", function (req, res) {
+
+    // Read the PKCS12 file into a buffer
+    const p12File = fs.readFileSync('./testorg.p12');
+
+    // Convert the PKCS12 buffer to a PKCS12 object
+    const pkcs12Asn1 = forge.asn1.fromDer(p12File.toString('binary'));
+    const pkcs12 = forge.pkcs12.pkcs12FromAsn1(pkcs12Asn1, 'testorg2');
+
+    // Extract the private key and certificate from the PKCS12 object
+    const privateKey = pkcs12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag })[forge.pki.oids.pkcs8ShroudedKeyBag][0].key;
+    const cert = pkcs12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag][0].cert;
+
+    // Convert the private key to PEM format
+    const keyPem = forge.pki.privateKeyToPem(privateKey);
+
+    // Convert the certificate to PEM format
+    const certPem = forge.pki.certificateToPem(cert);
+
+    function getCertificate(path) {
+        const certData = fs.readFileSync(path);
+        const cert = new crypto.X509Certificate(certData);
+        const pubCert = cert.publicKey.export({ type: 'spki', format: 'pem' });
+        return { publicKey: pubCert, certificate: cert };
+    }
 
 });
+
+
 
 
 app.listen(port, () => {
     console.log(`Test app listening on port ${port}`);
 });
+
+
+
+// -----BEGIN PUBLIC KEY-----
+// MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAl30Tdj1ikGGDB83WQGjf
+// MgYsTFUSvtZBs4E8K8dcDnmPsG96R6c7UVPdC6F2wAdBryQiGocPCkTI/VY+M32p
+// G8/47YAtR21MRduqd0mRdV0M45zriwA8aPvSCi8e4Th0EElbDRoF0t9Fmz/CK/oY
+// 7IQjkak6ANAD4xSAFREP61bHFOZR/7q382SsBO1eHaNAJGh01I0dE49Alet3j3U5
+// xMWyyalM2F5C31mUFntZi42u7LfLd36wxdHYTdaiceB1WkSgB1Ni/dmOQILcdCaB
+// uTVoIFR0m5by2PJADssLT2LAiayZk9N/EyQLLQZ40JXlN13HuTHNsc7UI6Kw1PBz
+// PQIDAQAB
+// -----END PUBLIC KEY-----
+
+
+// -----BEGIN PUBLIC KEY-----
+// MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAl30Tdj1ikGGDB83WQGjf
+// MgYsTFUSvtZBs4E8K8dcDnmPsG96R6c7UVPdC6F2wAdBryQiGocPCkTI/VY+M32p
+// G8/47YAtR21MRduqd0mRdV0M45zriwA8aPvSCi8e4Th0EElbDRoF0t9Fmz/CK/oY
+// 7IQjkak6ANAD4xSAFREP61bHFOZR/7q382SsBO1eHaNAJGh01I0dE49Alet3j3U5
+// xMWyyalM2F5C31mUFntZi42u7LfLd36wxdHYTdaiceB1WkSgB1Ni/dmOQILcdCaB
+// uTVoIFR0m5by2PJADssLT2LAiayZk9N/EyQLLQZ40JXlN13HuTHNsc7UI6Kw1PBz
+// PQIDAQAB
+// -----END PUBLIC KEY-----
+
+
+// -----BEGIN PUBLIC KEY-----
+// MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAl30Tdj1ikGGDB83WQGjf
+// MgYsTFUSvtZBs4E8K8dcDnmPsG96R6c7UVPdC6F2wAdBryQiGocPCkTI/VY+M32p
+// G8/47YAtR21MRduqd0mRdV0M45zriwA8aPvSCi8e4Th0EElbDRoF0t9Fmz/CK/oY
+// 7IQjkak6ANAD4xSAFREP61bHFOZR/7q382SsBO1eHaNAJGh01I0dE49Alet3j3U5
+// xMWyyalM2F5C31mUFntZi42u7LfLd36wxdHYTdaiceB1WkSgB1Ni/dmOQILcdCaB
+// uTVoIFR0m5by2PJADssLT2LAiayZk9N/EyQLLQZ40JXlN13HuTHNsc7UI6Kw1PBz
+// PQIDAQAB
+// -----END PUBLIC KEY-----
