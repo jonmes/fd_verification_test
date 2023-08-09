@@ -87,9 +87,7 @@ app.post("/sendotp", function (req, res) {
     const pKey = fs.readFileSync('./testorg2-key.pem', { encoding: "utf8" });
     const pCert = fs.readFileSync('./testorg2-cert.pem', { encoding: "utf8" });
 
-    // const payloadStream = JSON.stringify({"requestTime":new Date().toISOString(),"env":"Developer","domainUri":"https://dev.fayda.et","transactionID":"1231231234","individualId":"5814390537","individualType":"UIN","otpChannel":["PHONE"],"id":"fayda.identity.otp","version":"1.0"});
-    const payloadStream = JSON.stringify({ "requestTime": new Date().toISOString(), "env": "Developer", "domainUri": "https://dev.fayda.et", "transactionID": "1231231234", "individualId": "5814390537", "individualType": "UIN", "otpChannel": ["PHONE"], "id": "fayda.identity.otp", "version": "1.0" });
-    console.log(payloadStream);
+    const payloadStream = JSON.stringify({ "requestTime": new Date().toISOString(), "env": "Developer", "domainUri": "https://dev.fayda.et", "transactionID": "1231231234", "individualId": `${individual_id}`, "individualType": "UIN", "otpChannel": ["PHONE"], "id": "fayda.identity.otp", "version": "1.0" });
 
     const publicCert = pCert.replace(`-----BEGIN CERTIFICATE-----\n`, "").replace("\n-----END CERTIFICATE-----\n", "");
 
@@ -98,8 +96,6 @@ app.post("/sendotp", function (req, res) {
         privateKey: { key: pKey, passphrase: process.env.PASSPHRASE },
         payload: payloadStream,
     });
-    console.log('signature=:', signature);
-
 
 
     var options = {
@@ -310,16 +306,12 @@ app.post("/authotp", function (req, res) {
 
 app.post("/votp", function (req, res) {
 
-    const { otpCode } = req.body;
+    const { otpCode, individual_id } = req.body;
     const pKey = fs.readFileSync('./testorg2-key.pem', { encoding: "utf8" });
     const pCert = fs.readFileSync('./testorg2-cert.pem', { encoding: "utf8" });
     const publicCert = pCert.replace(`-----BEGIN CERTIFICATE-----\n`, "").replace("\n-----END CERTIFICATE-----\n", "");
 
-    // const requestBody = JSON.stringify({
-    //     "timestamp": new Date().toISOString(),
-    //     "otp": otpCode
-    // });
-    const requestBody = JSON.stringify({ "timestamp": new Date().toISOString(), "otp": "111111" })
+    const requestBody = JSON.stringify({ "timestamp": new Date().toISOString(), "otp": `${otpCode}` })
 
     function base64UrlEncode(buffer) {
         let base64Url = buffer.toString('base64')
@@ -365,8 +357,6 @@ app.post("/votp", function (req, res) {
     function symmetricEncrypt(key, data, aad) {
         try {
             const randomIV = crypto.randomBytes(16);
-            // const randomIV_ = "rMk9T-okY4Do_5PN8rn4vQ"
-            // const randomIV = Buffer.from(randomIV_, 'base64');
             const cipher = crypto.createCipheriv('aes-256-gcm', key, randomIV, { authTagLength: 16 });
             cipher.setAAD(aad);
             const encryptedData = Buffer.concat([cipher.update(data), cipher.final()]);
@@ -398,15 +388,7 @@ app.post("/votp", function (req, res) {
     const encryptedRequestBody = symmetricEncrypt(Buffer.from(SecretKey, 'base64url'), requestBody, "");
     const thumbprint = generateThumbprint(pubCertificate);
 
-
-    console.log('thumbprint', thumbprint);
-    console.log("requestSessionKey", requestSessionKey);
-    console.log("requestHMAC", requestHMAC);
-    console.log("encryt body", encryptedRequestBody);
-    console.log("hash of request", hashOfRequestBody);
-
-
-    const payload = JSON.stringify({ "requestTime": new Date().toISOString(), "env": "Developer", "domainUri": "https://dev.fayda.et", "transactionID": "1231231234", "requestedAuth": { "otp": true, "demo": false, "bio": false }, "consentObtained": true, "individualId": "5814390537", "individualIdType": "UIN", "thumbprint": thumbprint, "requestSessionKey": requestSessionKey, "requestHMAC": requestHMAC, "request": encryptedRequestBody, "id": "fayda.identity.auth", "version": "1.0" });
+    const payload = JSON.stringify({ "requestTime": new Date().toISOString(), "env": "Developer", "domainUri": "https://dev.fayda.et", "transactionID": "1231231234", "requestedAuth": { "otp": true, "demo": false, "bio": false }, "consentObtained": true, "individualId": `${individual_id}`, "individualIdType": "UIN", "thumbprint": thumbprint, "requestSessionKey": requestSessionKey, "requestHMAC": requestHMAC, "request": encryptedRequestBody, "id": "fayda.identity.auth", "version": "1.0" });
 
 
 
@@ -421,7 +403,7 @@ app.post("/votp", function (req, res) {
 
     var options = {
         host: process.env.HOST,
-        path: process.env.AUTH_REQUEST_PATH_NEW,
+        path: process.env.AUTH_REQUEST_PATH,
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -521,53 +503,6 @@ app.post("/hmac", function (req, res) {
     const requestHMAC = symmetricEncrypt(SecretKey, hashOfRequestBody.toUpperCase(), "");
     res.send(requestHMAC);
 });
-
-
-// app.post("/request", function (req, res) {
-//     function base64UrlEncode(buffer) {
-//         let base64Url = buffer.toString('base64')
-//             .replace(/\+/g, '-')
-//             .replace(/\//g, '_')
-//             .replace(/=/g, '');
-//         return base64Url;
-//     }
-//     function getCertificate(path) {
-//         const certData = fs.readFileSync(path);
-//         const cert = new crypto.X509Certificate(certData);
-//         const pubCert = cert.publicKey.export({ type: 'spki', format: 'pem' });
-//         return { publicKey: pubCert, certificate: cert };
-//     }
-
-//     function encryptAsymmetricKey(data, publicKey) {
-//         console.log('data', data);
-//         console.log('public', publicKey);
-//         const encryptedSymKey = crypto.publicEncrypt({
-//             key: publicKey,
-//             padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-//             oaepHash: 'sha256',
-//             mgf1: {
-//                 hash: 'sha256'
-//             }
-//         }, data);
-
-//         const encryptedSymKeyBase64Url = base64UrlEncode(encryptedSymKey); // Base64-URL-encode the encrypted symmetric key
-
-//         return encryptedSymKeyBase64Url;
-//     };
-//     const pKey = fs.readFileSync('./testorg2-key.pem', { encoding: "utf8" });
-//     const pubKey = getCertificate("./fayda.crt").publicKey;
-//     const SecretKey = "SkE4RwRTBcVBmpnFo4KYaiwUZzWwuNM--3Z8dhUB_yc"
-//     const dataTobeSent = Buffer.from(SecretKey, 'base64url');
-//     const requestSessionKey = encryptAsymmetricKey(dataTobeSent, pubKey);
-
-//     console.log("primary:", pKey);
-//     const decryptedData = crypto.privateDecrypt(requestSessionKey, pKey)
-
-//     console.log(requestSessionKey);
-//     console.log('decrypted:', decryptedData);
-//     res.send(requestSessionKey);
-
-// });
 
 
 app.post("/request", function (req, res) {
@@ -693,37 +628,3 @@ app.post("/testEncryption", function (req, res) {
 app.listen(port, () => {
     console.log(`Test app listening on port ${port}`);
 });
-
-
-
-// -----BEGIN PUBLIC KEY-----
-// MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAl30Tdj1ikGGDB83WQGjf
-// MgYsTFUSvtZBs4E8K8dcDnmPsG96R6c7UVPdC6F2wAdBryQiGocPCkTI/VY+M32p
-// G8/47YAtR21MRduqd0mRdV0M45zriwA8aPvSCi8e4Th0EElbDRoF0t9Fmz/CK/oY
-// 7IQjkak6ANAD4xSAFREP61bHFOZR/7q382SsBO1eHaNAJGh01I0dE49Alet3j3U5
-// xMWyyalM2F5C31mUFntZi42u7LfLd36wxdHYTdaiceB1WkSgB1Ni/dmOQILcdCaB
-// uTVoIFR0m5by2PJADssLT2LAiayZk9N/EyQLLQZ40JXlN13HuTHNsc7UI6Kw1PBz
-// PQIDAQAB
-// -----END PUBLIC KEY-----
-
-
-// -----BEGIN PUBLIC KEY-----
-// MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAl30Tdj1ikGGDB83WQGjf
-// MgYsTFUSvtZBs4E8K8dcDnmPsG96R6c7UVPdC6F2wAdBryQiGocPCkTI/VY+M32p
-// G8/47YAtR21MRduqd0mRdV0M45zriwA8aPvSCi8e4Th0EElbDRoF0t9Fmz/CK/oY
-// 7IQjkak6ANAD4xSAFREP61bHFOZR/7q382SsBO1eHaNAJGh01I0dE49Alet3j3U5
-// xMWyyalM2F5C31mUFntZi42u7LfLd36wxdHYTdaiceB1WkSgB1Ni/dmOQILcdCaB
-// uTVoIFR0m5by2PJADssLT2LAiayZk9N/EyQLLQZ40JXlN13HuTHNsc7UI6Kw1PBz
-// PQIDAQAB
-// -----END PUBLIC KEY-----
-
-
-// -----BEGIN PUBLIC KEY-----
-// MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAl30Tdj1ikGGDB83WQGjf
-// MgYsTFUSvtZBs4E8K8dcDnmPsG96R6c7UVPdC6F2wAdBryQiGocPCkTI/VY+M32p
-// G8/47YAtR21MRduqd0mRdV0M45zriwA8aPvSCi8e4Th0EElbDRoF0t9Fmz/CK/oY
-// 7IQjkak6ANAD4xSAFREP61bHFOZR/7q382SsBO1eHaNAJGh01I0dE49Alet3j3U5
-// xMWyyalM2F5C31mUFntZi42u7LfLd36wxdHYTdaiceB1WkSgB1Ni/dmOQILcdCaB
-// uTVoIFR0m5by2PJADssLT2LAiayZk9N/EyQLLQZ40JXlN13HuTHNsc7UI6Kw1PBz
-// PQIDAQAB
-// -----END PUBLIC KEY-----
