@@ -87,27 +87,18 @@ app.post("/sendotp", function (req, res) {
     const pKey = fs.readFileSync('./testorg2-key.pem', { encoding: "utf8" });
     const pCert = fs.readFileSync('./testorg2-cert.pem', { encoding: "utf8" });
 
-    const payloadStream = JSON.stringify({
-        "id": process.env.FAYDA_ID,
-        "version": "1.0",
-        "requestTime": new Date().toISOString(),
-        "env": process.env.ENV_TYPE,
-        "domainUri": process.env.DOMAIN_URI,
-        "transactionID": process.env.TRANSICTION_ID,
-        // "individualId": process.env.INDIVIDUAL_ID,
-        "individualId": individual_id,
-        "individualIdType": process.env.INDIVIDUAL_ID_TYPE,
-        "otpChannel": ["PHONE"]
-    });
-    // console.log(payloadStream);
+    // const payloadStream = JSON.stringify({"requestTime":new Date().toISOString(),"env":"Developer","domainUri":"https://dev.fayda.et","transactionID":"1231231234","individualId":"5814390537","individualType":"UIN","otpChannel":["PHONE"],"id":"fayda.identity.otp","version":"1.0"});
+    const payloadStream = JSON.stringify({ "requestTime": new Date().toISOString(), "env": "Developer", "domainUri": "https://dev.fayda.et", "transactionID": "1231231234", "individualId": "5814390537", "individualType": "UIN", "otpChannel": ["PHONE"], "id": "fayda.identity.otp", "version": "1.0" });
+    console.log(payloadStream);
 
     const publicCert = pCert.replace(`-----BEGIN CERTIFICATE-----\n`, "").replace("\n-----END CERTIFICATE-----\n", "");
 
     const signature = jws.sign({
-        header: { alg: "RS256", typ: "JWS", x5c: [publicCert] },
+        header: { alg: "RS256", x5c: [publicCert] },
         privateKey: { key: pKey, passphrase: process.env.PASSPHRASE },
         payload: payloadStream,
     });
+    console.log('signature=:', signature);
 
 
 
@@ -324,10 +315,11 @@ app.post("/votp", function (req, res) {
     const pCert = fs.readFileSync('./testorg2-cert.pem', { encoding: "utf8" });
     const publicCert = pCert.replace(`-----BEGIN CERTIFICATE-----\n`, "").replace("\n-----END CERTIFICATE-----\n", "");
 
-    const requestBody = JSON.stringify({
-        "timestamp": new Date().toISOString(),
-        "otp": otpCode
-    });
+    // const requestBody = JSON.stringify({
+    //     "timestamp": new Date().toISOString(),
+    //     "otp": otpCode
+    // });
+    const requestBody = JSON.stringify({ "timestamp": new Date().toISOString(), "otp": "111111" })
 
     function base64UrlEncode(buffer) {
         let base64Url = buffer.toString('base64')
@@ -373,6 +365,8 @@ app.post("/votp", function (req, res) {
     function symmetricEncrypt(key, data, aad) {
         try {
             const randomIV = crypto.randomBytes(16);
+            // const randomIV_ = "rMk9T-okY4Do_5PN8rn4vQ"
+            // const randomIV = Buffer.from(randomIV_, 'base64');
             const cipher = crypto.createCipheriv('aes-256-gcm', key, randomIV, { authTagLength: 16 });
             cipher.setAAD(aad);
             const encryptedData = Buffer.concat([cipher.update(data), cipher.final()]);
@@ -389,57 +383,37 @@ app.post("/votp", function (req, res) {
         // Get raw DER certificate data
         const certDER = data.raw;
         // Generate SHA-256 thumbprint 
-        const thumbprint = crypto.createHash('sha256').update(certDER).digest('hex');
+        const thumbprint = crypto.createHash('sha256').update(certDER).digest('base64url');
         return thumbprint;
     }
 
-    const SecretKey = generateSecretKey(32);
+    const SecretKeyTemp = generateSecretKey(32);
+    const SecretKey = SecretKeyTemp.toString('base64url');
 
     const pubKey = getCertificate('./fayda.crt').publicKey;
     const pubCertificate = getCertificate("./fayda.crt").certificate;
-    const requestSessionKey = encryptSymmetricKey(SecretKey, pubKey);
+    const requestSessionKey = encryptSymmetricKey(Buffer.from(SecretKey, 'base64url'), pubKey);
     const hashOfRequestBody = generateHash(requestBody).toString('hex');
-    const requestHMAC = symmetricEncrypt(SecretKey, hashOfRequestBody.toUpperCase(), "");
-    const encryptedRequestBody = symmetricEncrypt(SecretKey, requestBody, "");
+    const requestHMAC = symmetricEncrypt(Buffer.from(SecretKey, 'base64url'), hashOfRequestBody.toUpperCase(), "");
+    const encryptedRequestBody = symmetricEncrypt(Buffer.from(SecretKey, 'base64url'), requestBody, "");
     const thumbprint = generateThumbprint(pubCertificate);
 
 
-    // console.log('thumbprint', thumbprint);
-    // console.log("requestSessionKey", requestSessionKey);
-    // console.log("requestHMAC", requestHMAC);
-    // console.log("encryt body", encryptedRequestBody);
-    // console.log("hash of request", hashOfRequestBody);
+    console.log('thumbprint', thumbprint);
+    console.log("requestSessionKey", requestSessionKey);
+    console.log("requestHMAC", requestHMAC);
+    console.log("encryt body", encryptedRequestBody);
+    console.log("hash of request", hashOfRequestBody);
 
 
-    const payload = JSON.stringify({
-        "id": process.env.FAYDA_ID,
-        "version": "1.0",
-        "requestTime": new Date().toISOString(),
-        "env": process.env.ENV_TYPE,
-        "domainUri": process.env.DOMAIN_URI,
-        "transactionID": process.env.TRANSICTION_ID,
-        "consentObtained": true,
-        "individualId": process.env.INDIVIDUAL_ID,
-        "individualIdType": process.env.INDIVIDUAL_ID_TYPE,
-        "requestedAuth": {
-            "otp": true,
-            "demo": false,
-            "bio": false
-        },
-        "thumbprint": thumbprint,
-        "requestSessionKey": requestSessionKey,
-        "requestHMAC": requestHMAC,
-        //Encrypted with session key and base-64-URL encoded
-        "request": encryptedRequestBody
-    });
+    const payload = JSON.stringify({ "requestTime": new Date().toISOString(), "env": "Developer", "domainUri": "https://dev.fayda.et", "transactionID": "1231231234", "requestedAuth": { "otp": true, "demo": false, "bio": false }, "consentObtained": true, "individualId": "5814390537", "individualIdType": "UIN", "thumbprint": thumbprint, "requestSessionKey": requestSessionKey, "requestHMAC": requestHMAC, "request": encryptedRequestBody, "id": "fayda.identity.auth", "version": "1.0" });
 
-    console.log('payload:', JSON.parse(payload));
 
 
     // Send Request to end point
 
     const signature = jws.sign({
-        header: { alg: "RS256", typ: "JWS", x5c: [publicCert] },
+        header: { alg: "RS256", x5c: [publicCert] },
         privateKey: { key: pKey, passphrase: process.env.PASSPHRASE },
         payload: payload,
     });
@@ -447,7 +421,7 @@ app.post("/votp", function (req, res) {
 
     var options = {
         host: process.env.HOST,
-        path: process.env.OTP_REQUEST_PATH,
+        path: process.env.AUTH_REQUEST_PATH_NEW,
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -483,6 +457,26 @@ app.post("/votp", function (req, res) {
         console.log('Request Sent successfully');
     });
 
+});
+
+app.post("/thumbprint", function (req, res) {
+    function getCertificate(path) {
+        const certData = fs.readFileSync(path);
+        const cert = new crypto.X509Certificate(certData);
+        const pubCert = cert.publicKey.export({ type: 'spki', format: 'pem' });
+        return { publicKey: pubCert, certificate: cert };
+    }
+    function generateThumbprint(data) {
+        // Get raw DER certificate data
+        const certDER = data.raw;
+        // Generate SHA-256 thumbprint 
+        const thumbprint = crypto.createHash('sha256').update(certDER).digest('base64url');
+        return thumbprint;
+    }
+    const pubCertificate = getCertificate("./fayda.crt").certificate
+    const thumbprint = generateThumbprint(pubCertificate);
+
+    res.send(thumbprint);
 });
 
 
