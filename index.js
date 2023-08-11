@@ -137,7 +137,7 @@ app.post("/sendotp", function (req, res) {
     });
 
 
-    // res.send(req.cookies);
+    res.send("otp send successfully");
 });
 
 app.post("/authotp", function (req, res) {
